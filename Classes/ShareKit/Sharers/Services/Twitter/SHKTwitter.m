@@ -30,7 +30,7 @@
 
 #import "SHKConfiguration.h"
 #import "SHKTwitter.h"
-#import "JSONKit.h"
+#import "../../../../../../RestKit/Vendor/JSONKit/JSONKit.h"
 #import "SHKiOS5Twitter.h"
 
 static NSString *const kSHKTwitterUserInfo=@"kSHKTwitterUserInfo";
