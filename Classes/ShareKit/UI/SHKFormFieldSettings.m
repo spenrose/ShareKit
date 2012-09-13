@@ -30,25 +30,50 @@
 
 @implementation SHKFormFieldSettings
 
-@synthesize label, key, type, start;
+@synthesize label, key, type, start, value, optionPickerInfo, optionDetailLabelDefault;
 
 - (void)dealloc
 {
 	[label release];
 	[key release];
 	[start release];
+    [value release];
+    [optionPickerInfo release];
+    [optionDetailLabelDefault release];
 	
 	[super dealloc];
 }
 
 + (id)label:(NSString *)l key:(NSString *)k type:(SHKFormFieldType)t start:(NSString *)s
 {
+	return [SHKFormFieldSettings label:l key:k type:t start:s optionPickerInfo:nil optionDetailLabelDefault:nil];
+}
+
++ (id)label:(NSString *)l key:(NSString *)k type:(SHKFormFieldType)t start:(NSString *)s optionPickerInfo:(NSMutableDictionary*) oi optionDetailLabelDefault:(NSString *)od
+{
 	SHKFormFieldSettings *settings = [[SHKFormFieldSettings alloc] init];
 	settings.label = l;
 	settings.key = k;
 	settings.type = t;	
 	settings.start = s;
+    settings.value = s;
+	settings.optionPickerInfo = oi;
+    settings.optionDetailLabelDefault = od;
 	return [settings autorelease];
+}
+
+- (NSString*) optionPickerValueForIndexes:(NSString*)indexes
+{
+	NSString* resultVal = nil;
+	if(![indexes isEqualToString:@"-1"]){
+		NSArray* curIndexes = [indexes componentsSeparatedByString:@","];
+		NSArray* values = [self.optionPickerInfo objectForKey:@"itemsList"];
+		for (NSString* index in curIndexes) {
+			int indexVal = [index intValue];
+			resultVal = resultVal == nil ?  [values objectAtIndex:indexVal] : [NSString stringWithFormat:@"%@,%@", resultVal,[values objectAtIndex:indexVal]];
+		}
+	}	
+	return resultVal == nil ? @"-1" : resultVal;
 }
 
 @end

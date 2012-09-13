@@ -27,29 +27,37 @@
 
 #import "SHK.h"
 #import "SHKConfiguration.h"
-#import "SHKCustomFormController.h"
+#import "SHKFormController.h"
 #import "SHKCustomFormFieldCell.h"
+#import "SHKFormFieldCellText.h"
+#import "SHKFormFieldCellSwitch.h"
+#import "SHKFormFieldCellOptionPicker.h"
 
+#define CELL_IDENTIFIER_TEXT @"textCell"
+#define CELL_IDENTIFIER_SWITCH @"switchCell"
+#define CELL_IDENTIFIER_OPTIONS @"optionsCell"
+
+@interface SHKFormController ()
+
+@property (nonatomic, retain) UITextField *activeField;
+
+@end
 
 @implementation SHKFormController
 
 @synthesize delegate, validateSelector, saveSelector, cancelSelector; 
-@synthesize sections, values;
-@synthesize labelWidth;
+@synthesize sections;
 @synthesize activeField;
 @synthesize autoSelect;
-
 
 - (void)dealloc 
 {
 	delegate = nil;
 	[sections release];
-	[values release];
 	[activeField release];
 	
     [super dealloc];
 }
-
 
 #pragma mark -
 #pragma mark Initialization
@@ -68,8 +76,7 @@
 																				  style:UIBarButtonItemStyleDone
 																				 target:self
 																				 action:@selector(validateForm)] autorelease];
-		
-		self.values = [NSMutableDictionary dictionaryWithCapacity:0];
+        self.tableView.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
 	}
 	return self;
 }
@@ -88,33 +95,7 @@
 	if (footer)
 		[dict setObject:footer forKey:@"footer"];
 	
-	
 	[sections addObject:dict];
-	
-	if (!SHKCONFIG(usePlaceholders)) {
-		// Find the max length of the labels so we can use this value to align the left side of all form fields
-		// TODO - should probably save this per section for flexibility
-		if (sections.count == 1)
-		{
-			CGFloat newWidth = 0;
-			CGSize size;
-			
-			for (SHKFormFieldSettings *field in fields)
-			{
-				// only use text field rows
-				if (field.type != SHKFormFieldTypeText && 
-					field.type != SHKFormFieldTypeTextNoCorrect &&
-					field.type != SHKFormFieldTypePassword)
-					continue;
-				
-				size = [field.label sizeWithFont:[UIFont boldSystemFontOfSize:17]];
-				if (size.width > newWidth)
-					newWidth = size.width;
-			}
-			
-			self.labelWidth = newWidth;
-		}
-	}
 }
 
 #pragma mark -
@@ -131,18 +112,35 @@
 {
 	[super viewDidDisappear:animated];
 	
-	// Remove the SHK view wrapper from the window
-	[[SHK currentHelper] viewWasDismissed];
+	// Remove the SHK view wrapper from the window (but only if the view doesn't have another modal over it)
+	// this happens when we have an options picker.
+	if (self.navigationController.topViewController == nil)
+		[[SHK currentHelper] viewWasDismissed];
 }
 
 - (void)viewDidLoad
 {
 	[super viewDidLoad];
 	
-	if ([SHKCONFIG(formBgColorRed) intValue] != -1)
-		self.tableView.backgroundColor = [UIColor colorWithRed:[SHKCONFIG(formBgColorRed) intValue]/255 green:[SHKCONFIG(formBgColorGreen) intValue]/255 blue:[SHKCONFIG(formBgColorBlue) intValue]/255 alpha:1];
+	if (SHKCONFIG(formBackgroundColor) != nil)
+         self.tableView.backgroundColor = SHKCONFIG(formBackgroundColor);
 }
 
+
+#pragma mark -
+#pragma mark Table view
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath{
+	
+    UITableViewCell *cell = [self tableView:self.tableView cellForRowAtIndexPath:indexPath];
+    
+    if ([cell isKindOfClass:[SHKFormFieldCellOptionPicker class]]) {
+        
+        SHKFormFieldSettings* settingsForCell = [self rowSettingsForIndexPath:indexPath];        
+        SHKFormOptionController* optionsPicker = [[SHKFormOptionController alloc] initWithOptionsInfo:settingsForCell client:self];
+		[self.navigationController pushViewController:optionsPicker animated:YES];
+        [optionsPicker release];
+    }
+}
 
 #pragma mark -
 #pragma mark Table view data source
@@ -159,42 +157,41 @@
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath 
 {
-    static NSString *CellIdentifier = @"Cell";
+	SHKFormFieldSettings* settingsForCell = [self rowSettingsForIndexPath:indexPath];
     
-    SHKCustomFormFieldCell *cell = (SHKCustomFormFieldCell *)[tableView dequeueReusableCellWithIdentifier:CellIdentifier];
-    if (cell == nil)
-	{
-        cell = [[[SHKCustomFormFieldCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:CellIdentifier] autorelease];
-		cell.form = self;
+    NSString *cellIdentifier = nil;
+    Class cellSubclass = nil;
+    UITableViewCellStyle cellStyle = UITableViewCellStyleDefault;
+    
+    switch (settingsForCell.type) {
+        case SHKFormFieldTypeText:
+        case SHKFormFieldTypeTextNoCorrect:
+        case SHKFormFieldTypePassword:
+            cellIdentifier = CELL_IDENTIFIER_TEXT;
+            cellSubclass = [SHKFormFieldCellText class];
+            break;
+        case SHKFormFieldTypeSwitch:
+            cellIdentifier = CELL_IDENTIFIER_SWITCH;
+            cellSubclass = [SHKFormFieldCellSwitch class];
+            break;
+        case SHKFormFieldTypeOptionPicker:
+            cellIdentifier = CELL_IDENTIFIER_OPTIONS;
+            cellStyle = UITableViewCellStyleValue1;
+            cellSubclass = [SHKFormFieldCellOptionPicker class];
+        default:
+            break;
+    }    
+	
+    SHKFormFieldCell* cell = (SHKFormFieldCell *)[tableView dequeueReusableCellWithIdentifier:cellIdentifier];
+    
+    if (cell == nil) {
 		
-		if ([SHKCONFIG(formFontColorRed) intValue] != -1)
-			cell.textLabel.textColor = [UIColor colorWithRed:[SHKCONFIG(formFontColorRed) intValue]/255 green:[SHKCONFIG(formFontColorGreen) intValue]/255 blue:[SHKCONFIG(formFontColorBlue) intValue]/255 alpha:1];
-	}
-	
-	// Since we are reusing table cells, make sure to save any existing values before overwriting
-	if (cell.settings.key != nil && [cell getValue])
-		[values setObject:[cell getValue] forKey:cell.settings.key];
-    
-	cell.settings = [self rowSettingsForIndexPath:indexPath];
-	if(SHKCONFIG(usePlaceholders))
-	{
-		cell.textField.placeholder = cell.settings.label;
-		if(cell.settings.type != SHKFormFieldTypeText &&
-		   cell.settings.type != SHKFormFieldTypePassword &&
-		   cell.settings.type != SHKFormFieldTypeTextNoCorrect)
-		{
-			cell.textLabel.text = cell.settings.label;
-		}
-	}else{
-		cell.labelWidth = labelWidth;
-		cell.textLabel.text = cell.settings.label;
-	}
-	
-	NSString *value = [values objectForKey:cell.settings.key];
-	if (value == nil && cell.settings.start != nil)
-		value = cell.settings.start;
-	
-	[cell setValue:value];
+        cell = [[[cellSubclass alloc] initWithStyle:cellStyle reuseIdentifier:cellIdentifier] autorelease];
+		cell.delegate = self;
+        [cell setupLayout];
+    }
+		
+	[cell setupWithSettings:settingsForCell];
 	
     return cell;
 }
@@ -214,7 +211,6 @@
 	return [[sections objectAtIndex:section] objectForKey:@"footer"];
 }
 
-
 #pragma mark -
 
 - (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)interfaceOrientation 
@@ -222,21 +218,24 @@
     return YES;
 }
 
+#pragma mark - SHKFormFieldCellDelegate
 
-#pragma mark -
-#pragma mark UITextFieldDelegate
-
-- (BOOL)textFieldShouldReturn:(UITextField *)textField
-{
-	[self validateForm];	
-	return YES;
+- (void)setActiveTextField:(UITextField *)activeTextField {
+    
+    self.activeField = activeTextField;
 }
 
-- (void)textFieldDidBeginEditing:(UITextField *)textField
-{
-	self.activeField = textField;
-}
+#pragma mark - SHKFormOptionControllerClient
 
+- (void)SHKFormOptionControllerDidFinish:(SHKFormOptionController *)optionController
+{	
+    NSArray *fields = [[sections objectAtIndex:0] objectForKey:@"rows"];
+    NSUInteger index = [fields indexOfObject:optionController.settings];
+    SHKCustomFormFieldCell* cell = (SHKCustomFormFieldCell *)[self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:index inSection:0]];
+    [cell setupWithSettings:optionController.settings];        
+    
+    [self.navigationController popViewControllerAnimated:YES];
+}
 
 #pragma mark -
 #pragma mark Completion
@@ -254,7 +253,8 @@
 
 - (void)validateForm
 {
-	[activeField resignFirstResponder];
+	
+    [self.activeField.delegate textFieldShouldReturn:self.activeField];
 	[delegate performSelector:validateSelector withObject:self];
 }
 
@@ -268,38 +268,24 @@
 
 - (NSMutableDictionary *)formValues
 {
-	return [self formValuesForSection:0];
+	return [self formValuesForSection:0];	// if this supports more than one section, option picking would have to be fixed, see SHKFormOptionControllerDidFinish
 }
 			
 - (NSMutableDictionary *)formValuesForSection:(int)section
 {
 	// go through all form fields and get values
-	NSMutableDictionary *formValues = [NSMutableDictionary dictionaryWithCapacity:0];
+	NSMutableDictionary *formValues = [NSMutableDictionary dictionaryWithCapacity:0];	
+	NSArray *allFieldSettings = [[sections objectAtIndex:section] objectForKey:@"rows"];
 	
-	SHKCustomFormFieldCell *cell;
-	int row = 0;
-	NSArray *fields = [[sections objectAtIndex:section] objectForKey:@"rows"];
-	
-	for(SHKFormFieldSettings *field in fields)
+    for(SHKFormFieldSettings *settings in allFieldSettings)
 	{		
-		cell = (SHKCustomFormFieldCell *)[self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:row inSection:section]];
+        if (settings.value) {
+            [formValues setObject:settings.value forKey:settings.key];	
+        }        		
+    }
 		
-		// Use text field if visible first		
-		if ([cell.settings.key isEqualToString:field.key] && [cell getValue] != nil)
-			[formValues setObject:[cell getValue] forKey:field.key];
-		
-		// If field is not visible, use cached value
-		else if ([values objectForKey:field.key] != nil)
-			[formValues setObject:[values objectForKey:field.key] forKey:field.key];
-			
-		row++;
-	}
-	
 	return formValues;	
 }
-		 
-		 
-
 
 @end
 

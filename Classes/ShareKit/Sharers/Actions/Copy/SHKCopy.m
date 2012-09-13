@@ -38,6 +38,11 @@
 	return SHKLocalizedString(@"Copy");
 }
 
++ (BOOL)canShareText
+{
+	return YES;
+}
+
 + (BOOL)canShareURL
 {
 	return YES;
@@ -58,6 +63,10 @@
 	return NO;
 }
 
+- (void) placeImageOnPasteboard
+{
+	[[UIPasteboard generalPasteboard] setImage:item.image];
+}
 
 #pragma mark -
 #pragma mark Configuration : Dynamic Enable
@@ -75,9 +84,10 @@
 {	
 	if (item.shareType == SHKShareTypeURL)
 		[[UIPasteboard generalPasteboard] setString:item.URL.absoluteString];
-	
-	else
-		[[UIPasteboard generalPasteboard] setImage:item.image];
+	else if(item.shareType == SHKShareTypeImage)
+		[self placeImageOnPasteboard];
+    else if (item.shareType == SHKShareTypeText)
+        [[UIPasteboard generalPasteboard] setString:item.text];
 	
 	// Notify user
 	[[SHKActivityIndicator currentIndicator] displayCompleted:SHKLocalizedString(@"Copied!")];
